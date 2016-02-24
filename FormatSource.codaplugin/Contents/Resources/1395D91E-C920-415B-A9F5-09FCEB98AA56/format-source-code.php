@@ -1,6 +1,13 @@
 #!/opt/local/bin/php
 <?php
-//! Requires MacPorts version of PHP compiled with tidy
+/*
+ * A plugin for Coda to format source code
+ *
+ * @author Mike Folsom <mike@nissicreative.com>
+ * @since 12/9/15
+ * @requires MacPorts version of PHP compiled with tidy
+ */
+
 
 // Plugin receives a selection or an entire document
 $html = file_get_contents('php://stdin');
@@ -26,6 +33,12 @@ if (preg_match('~<body[^>]*>~', $html, $matches)) {
 $html = preg_replace('~^\s+~m', '', $html);
 
 
+// Preserve <title> element if it is not inside <head> (i.e. used in a Blade template)
+if (empty($head)) {
+    $html = str_replace(['<title>', '</title>'], ['[title]', '[/title]'], $html);
+}
+
+
 
 //! Tidy markup
 // ================================================== //
@@ -41,7 +54,7 @@ $config = array(
 	'merge-spans'          => 'no',
 	'new-blocklevel-tags'  => 'article,aside,command,canvas,dialog,details,figcaption,figure,footer,header,hgroup,menu,nav,section,summary,meter',
 	'new-inline-tags'      => 'video,audio,canvas,ruby,rt,rp,time,meter,progress,datalist,keygen,mark,output,source,wbr',
-	'output-xhtml'          => 'yes',
+	'output-xhtml'         => 'yes',
 	'quote-ampersand'      => 'no',
 	'show-body-only'       => 1,
 	'tab-size'             => 4,
@@ -64,31 +77,59 @@ $tidy->cleanRepair();
 for ($i = 0; $i < 3; $i++) {
 
 	// Add line breaks before a few other starting tags...
-	$tidy = preg_replace('~^(\s*)(\S+.*)(<(iframe|input|script|!--).*)~m', "$1$2\n$1$3", $tidy);
+	$tidy = preg_replace('~^(\s*)(\S+.*)(<(iframe|input|select|script|!--).*)~m', "$1$2\n$1$3", $tidy);
 
 
 	// Line break before PHP block, unless it is an echo statement
 	$tidy = preg_replace('~(^\s*)(\S+.*)(<\?php(?!.*echo))~m', "$1$2\n$1$3", $tidy);
 
 
+	// Line break before Blade directives
+	$tidy = preg_replace('~(^\s*)(\S+.*)(@(section|stop|show|parent|include|if|else|endsection|unless|for))~m', "$1$2\n$1$3", $tidy);
+	$tidy = preg_replace('~(^\s*)(\S+.*)({!! Form:)~m', "$1$2\n$1$3", $tidy);
+
+
 	// Remove line breaks on <script> tags with a 'src' attribute
 	$tidy = preg_replace('~(<script src[^>]*>)(\s*)(</script>)~m', "$1$3", $tidy);
 
+	
+	// Put </td> directly after content
+	$tidy = preg_replace('~\s*(</td>)~m', "$1", $tidy);
 }
-
+	
 // Remove whitespace inside <textarea> tags
 $tidy = preg_replace('~>(\s*)(<\?php(.*)\?>)?\s*(</textarea>)~m', ">$2$4", $tidy);
 
 
 // Four spaces to tab
-$tidy = str_replace('    ', "\t", $tidy);
+// $tidy = str_replace('    ', "\t", $tidy);
 
+
+// Indent 'init()' JS (A personal thing)
+$tidy = preg_replace('~^init\(\);~m', "\tinit();", $tidy);
+
+
+// Extra line breaks between Blade @section delimiters
+$tidy = preg_replace('~^(@section)~m', "\n\n$1", $tidy);
+
+
+// Blade Templating - Preserve operators
+$tidy = str_replace('=&gt;', '=>', $tidy);
+$tidy = str_replace('-&gt;', '->', $tidy);
+
+
+// Restore <title> tag
+$tidy = str_replace(['[title]', '[/title]'], ["\n<title>", '</title>'], $tidy);
 
 
 //! Output results
 // ================================================== //
 
 if (!empty($head)) {
+	// Update revision date
+	date_default_timezone_set('America/Chicago');
+	$head = preg_replace('~(?:Rev\. )\d+/\d+/\d+~', 'Rev. ' . date('m/d/Y'), $head);
+	
 	echo $head . "</head>\n";
 	echo "$body_tag\n";
 }
